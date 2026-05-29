@@ -1,0 +1,73 @@
+# Archipelago Environment — Kubernetes manifests
+#
+# Build and push the image before applying:
+#   docker build -t YOUR_REGISTRY/archipelago-environment:latest \
+#     -f environment/Dockerfile .
+#   docker push YOUR_REGISTRY/archipelago-environment:latest
+#
+# For eval runs, main.py creates these resources dynamically when
+# ENVIRONMENT_IMAGE is set. This file is for manual/shared deployments.
+#
+# Apply:
+#   kubectl apply -f k8s_environment.yaml
+# Delete:
+#   kubectl delete -f k8s_environment.yaml
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: archipelago-environment
+  namespace: qywu
+  labels:
+    app: archipelago-environment
+    run: archipelago-environment
+spec:
+  containers:
+    - name: environment
+      image: YOUR_REGISTRY/archipelago-environment:latest
+      imagePullPolicy: IfNotPresent
+      ports:
+        - containerPort: 8080
+          name: http
+      env:
+        - name: ENV
+          value: local
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 8080
+        initialDelaySeconds: 15
+        periodSeconds: 5
+        failureThreshold: 24   # 2 min grace after initial delay
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 8080
+        initialDelaySeconds: 60
+        periodSeconds: 15
+        failureThreshold: 4
+      resources:
+        requests:
+          memory: "2Gi"
+          cpu: "1"
+        limits:
+          memory: "8Gi"
+          cpu: "4"
+  restartPolicy: Never
+  # Uncomment if your registry requires authentication:
+  # imagePullSecrets:
+  #   - name: registry-credentials
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: archipelago-environment
+  namespace: qywu
+spec:
+  selector:
+    run: archipelago-environment
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP
