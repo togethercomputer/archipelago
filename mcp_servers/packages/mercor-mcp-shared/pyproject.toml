@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mercor-mcp-shared"
+version = "0.1.0"
+description = "Stub package for offline builds — provides mcp_schema"
+dependencies = ["pydantic>=2.0.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mercor_mcp_shared", "src/mcp_schema"]

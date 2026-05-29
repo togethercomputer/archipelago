@@ -38,6 +38,9 @@ SUBSYSTEMS = ["filesystem", ".apps_data"]
 # Default task: Investment Banking World 221 - BBDC/TVPG accretion/dilution sensitivity analysis
 DEFAULT_TASK = "task_9ba58a6197114140877a1df1754d2993"
 
+# K8s mode: set ENVIRONMENT_IMAGE to skip docker-compose and run a pod per eval
+ENVIRONMENT_IMAGE = os.environ.get("ENVIRONMENT_IMAGE")
+
 
 def log(msg: str):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -130,6 +133,115 @@ def start_environment():
     log("Environment started")
 
 
+def _k8s_namespace() -> str:
+    """Auto-detect current K8s namespace from the service account mount."""
+    ns_file = Path("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+    if ns_file.exists():
+        return ns_file.read_text().strip()
+    return os.environ.get("K8S_NAMESPACE", "default")
+
+
+def start_environment_k8s(name: str, namespace: str) -> str:
+    """Create a K8s Pod + ClusterIP Service for one eval run. Returns the service URL."""
+    pod_manifest = {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": name,
+            "namespace": namespace,
+            "labels": {"app": "archipelago-environment", "run": name},
+        },
+        "spec": {
+            "containers": [{
+                "name": "environment",
+                "image": ENVIRONMENT_IMAGE,
+                "imagePullPolicy": "Always",
+                "ports": [{"containerPort": 8080}],
+                "env": [{"name": "ENV", "value": "local"}],
+                "readinessProbe": {
+                    "httpGet": {"path": "/health", "port": 8080},
+                    "initialDelaySeconds": 15,
+                    "periodSeconds": 5,
+                    "failureThreshold": 24,
+                },
+                "resources": {
+                    "requests": {"memory": "2Gi", "cpu": "1"},
+                    "limits": {"memory": "8Gi", "cpu": "4"},
+                },
+                "volumeMounts": [{
+                    "name": "mcp-schema-init",
+                    "mountPath": "/app/mcp_servers/packages/mercor-mcp-shared/src/mcp_schema/__init__.py",
+                    "subPath": "__init__.py",
+                }],
+            }],
+            "volumes": [{
+                "name": "mcp-schema-init",
+                "configMap": {"name": "mcp-schema-init"},
+            }],
+            "restartPolicy": "Never",
+        },
+    }
+    svc_manifest = {
+        "apiVersion": "v1",
+        "kind": "Service",
+        "metadata": {"name": name, "namespace": namespace},
+        "spec": {
+            "selector": {"run": name},
+            "ports": [{"port": 8080, "targetPort": 8080}],
+            "type": "ClusterIP",
+        },
+    }
+
+    for manifest in [pod_manifest, svc_manifest]:
+        result = subprocess.run(
+            ["kubectl", "apply", "-f", "-", f"--namespace={namespace}"],
+            input=json.dumps(manifest),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"kubectl apply failed: {result.stderr}")
+        log(f"  {result.stdout.strip()}")
+
+    log("Waiting for environment pod to be ready...")
+    result = subprocess.run(
+        [
+            "kubectl", "wait", f"pod/{name}",
+            "--for=condition=Ready",
+            f"--namespace={namespace}",
+            "--timeout=180s",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        subprocess.run(["kubectl", "logs", name, f"--namespace={namespace}"])
+        raise RuntimeError(f"Environment pod failed to become ready: {result.stderr}")
+
+    # Resolve service ClusterIP directly — this pod uses public DNS (no cluster DNS)
+    svc_ip_result = subprocess.run(
+        ["kubectl", "get", "svc", name, f"--namespace={namespace}",
+         "-o", "jsonpath={.spec.clusterIP}"],
+        capture_output=True, text=True,
+    )
+    svc_ip = svc_ip_result.stdout.strip()
+    svc_url = f"http://{svc_ip}:8080"
+    if not wait_for_health(svc_url, timeout=60):
+        raise RuntimeError(f"Environment HTTP health check failed at {svc_url}")
+    return svc_url
+
+
+def stop_environment_k8s(name: str, namespace: str) -> None:
+    """Delete the K8s Pod and Service created for this eval run."""
+    for kind in ("pod", "service"):
+        subprocess.run(
+            ["kubectl", "delete", kind, name,
+             f"--namespace={namespace}", "--ignore-not-found", "--wait=false"],
+            capture_output=True,
+        )
+    log(f"Deleted K8s environment resources: {name}")
+
+
 def tar_gz_to_zip(tar_gz_path: Path) -> Path:
     """Convert tar.gz to zip for grading."""
     stem = tar_gz_path.stem
@@ -195,8 +307,33 @@ def main():
     log(f"Prompt: {task['prompt'][:100]}...")
     log("=" * 60)
 
-    start_environment()
+    global ENV_URL
+    k8s_env_name = None
+    k8s_ns = None
+    if ENVIRONMENT_IMAGE:
+        k8s_ns = _k8s_namespace()
+        k8s_env_name = f"arch-env-{uuid.uuid4().hex[:8]}"
+        log(f"K8s mode: starting environment pod {k8s_env_name} in namespace {k8s_ns}")
+        ENV_URL = start_environment_k8s(k8s_env_name, k8s_ns)
+        log(f"Environment URL: {ENV_URL}")
+    else:
+        start_environment()
 
+    try:
+        _run_eval(task, world, world_id, trajectory_id, grading_run_id, output_dir)
+    finally:
+        if k8s_env_name:
+            log("Cleaning up K8s environment...")
+            stop_environment_k8s(k8s_env_name, k8s_ns)
+
+    log("=" * 60)
+    log("DONE")
+    log(f"Output: {output_dir}")
+    log("=" * 60)
+
+
+def _run_eval(task, world, world_id, trajectory_id, grading_run_id, output_dir):
+    """Run the eval: populate environment, run agent, grade results."""
     # Download and extract world snapshot
     log(f"Downloading world snapshot: {world_id}")
     zip_path = hf_hub_download(
@@ -231,6 +368,8 @@ def main():
     log(f"  Servers: {list(mcp_config['mcpServers'].keys())}")
 
     resp = httpx.post(f"{ENV_URL}/apps", json=mcp_config, timeout=600.0)
+    if not resp.is_success:
+        log(f"ERROR /apps {resp.status_code}: {resp.text}")
     resp.raise_for_status()
     log("MCP servers configured")
 
@@ -310,7 +449,8 @@ Don't over-explain. Be concise but show your thinking.
             json.dump(orchestrator_config["extra_args"], f)
         agent_cmd.extend(["--orchestrator-extra-args", str(extra_args_file)])
 
-    result = subprocess.run(agent_cmd, cwd=AGENTS_DIR)
+    agent_env = {**os.environ, "ENV": "local"}
+    result = subprocess.run(agent_cmd, cwd=AGENTS_DIR, env=agent_env)
     if result.returncode != 0:
         log(f"WARNING: Agent exited with code {result.returncode}")
 
@@ -389,7 +529,7 @@ Don't over-explain. Be concise but show your thinking.
             str(grades_file),
         ]
 
-        result = subprocess.run(grading_cmd, cwd=GRADING_DIR)
+        result = subprocess.run(grading_cmd, cwd=GRADING_DIR, env={**os.environ, "ENV": "local"})
         if result.returncode != 0:
             log(f"WARNING: Grading exited with code {result.returncode}")
 
@@ -403,11 +543,6 @@ Don't over-explain. Be concise but show your thinking.
             log(f"Final Score: {grades.get('scoring_results', {}).get('final_score')}")
             for vr in grades.get("verifier_results", []):
                 log(f"  - {vr.get('verifier_id')}: {vr.get('score')}")
-
-    log("=" * 60)
-    log("DONE")
-    log(f"Output: {output_dir}")
-    log("=" * 60)
 
 
 if __name__ == "__main__":
