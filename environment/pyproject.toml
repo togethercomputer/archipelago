@@ -40,6 +40,8 @@ dev = [
 
 [tool.uv]
 exclude-newer = "7 days"
+# Security fixes newer than the cooldown window (CVE remediation).
+exclude-newer-package = { certifi = false }
 
 [tool.basedpyright]
 typeCheckingMode = "recommended"
