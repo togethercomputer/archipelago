@@ -1,4 +1,4 @@
-FROM node:22.23-trixie-slim AS node
+FROM node:22.23.4-trixie-slim AS node
 
 FROM debian:trixie-slim
 
