@@ -1781,7 +1781,7 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mcp-middleware", directory = "packages/mcp_middleware" },
     { name = "mcp-schema", directory = "packages/mcp_schema" },
-    { name = "pillow", specifier = ">=12.2.0" },
+    { name = "pillow", specifier = ">=13.0.0" },
     { name = "pydantic-settings", specifier = ">=2.11.0" },
     { name = "pymupdf", specifier = ">=1.24.0" },
     { name = "pypdf", specifier = ">=4.0.0" },

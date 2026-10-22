@@ -1146,7 +1146,7 @@ requires-dist = [
     { name = "litellm", specifier = "==1.88.6" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mercor-mcp-shared", git = "https://github.com/Mercor-Intelligence/mercor-mcp-shared.git?branch=main" },
-    { name = "pillow", specifier = ">=12.2.0" },
+    { name = "pillow", specifier = ">=13.0.0" },
     { name = "pydantic-settings", specifier = ">=2.11.0" },
     { name = "python-docx", specifier = ">=1.1.2" },
     { name = "redis", specifier = ">=6.4.0" },
