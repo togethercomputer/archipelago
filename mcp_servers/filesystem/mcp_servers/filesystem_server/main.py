@@ -35,7 +35,7 @@ mcp.tool(get_directory_tree)
 
 
 async def _flatten_tool_schemas():
-    for tool in (await mcp.get_tools()).values():
+    for tool in await mcp.list_tools():
         params = getattr(tool, "parameters", None)
         if isinstance(params, dict):
             tool.parameters = flatten_schema(params)
