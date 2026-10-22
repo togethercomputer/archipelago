@@ -667,7 +667,7 @@ requires-dist = [
     { name = "lxml", specifier = ">=5.0.0" },
     { name = "openpyxl", specifier = ">=3.1.0" },
     { name = "pdf2image", specifier = ">=1.17.0" },
-    { name = "pillow", specifier = ">=12.1.1" },
+    { name = "pillow", specifier = ">=12.2.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pydicom", specifier = ">=3.0.0" },

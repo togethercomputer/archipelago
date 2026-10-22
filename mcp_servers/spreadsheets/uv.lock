@@ -1155,7 +1155,7 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mercor-mcp-shared", git = "https://github.com/Mercor-Intelligence/mercor-mcp-shared.git?branch=main" },
     { name = "openpyxl", specifier = ">=3.1.5" },
-    { name = "pillow", specifier = ">=12.1.0" },
+    { name = "pillow", specifier = ">=12.2.0" },
     { name = "pydantic-settings", specifier = ">=2.11.0" },
     { name = "redis", specifier = ">=6.4.0" },
 ]

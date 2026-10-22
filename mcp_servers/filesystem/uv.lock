@@ -1078,7 +1078,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "basedpyright", specifier = ">=1.31.6" },
-    { name = "pillow", specifier = ">=11.0.0" },
+    { name = "pillow", specifier = ">=12.2.0" },
     { name = "pytest", specifier = ">=8.3.0" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
